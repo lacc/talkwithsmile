@@ -10,6 +10,14 @@ from pathlib import Path
 from assistants import assistant
 import os
 import time
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+
+print("Downloading AI model")
+#nlp = pipeline("conversational", model="microsoft/DialoGPT-medium")
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
+print("done")
 
 go_to_sleep = False
 
@@ -26,10 +34,12 @@ screen_width, screen_height = 480, 320
 def init_pygame():
     global screen
     # Initialize Pygame for facial animation
-    pygame.init()
-    
-    screen = pygame.display.set_mode((screen_width, screen_height))
-    pygame.display.set_caption('Smart Kiosk')
+    if not screen:
+        pygame.init()
+        
+        screen = pygame.display.set_mode((screen_width, screen_height), pygame.DOUBLEBUF)
+        #screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        pygame.display.set_caption('Smart Kiosk')
 
 def close_pygame():
     global screen
@@ -53,21 +63,29 @@ mouth_closed_image = pygame.image.load('images/mouth_closed.png')
 mouth_closed_image = pygame.transform.scale(mouth_closed_image, (screen_width, screen_height))
 
 response_sound_file = "sounds/response.mp3"
+is_talking = False
 
 # Function to display facial animations
 def display_face(talking=False, startup=True):
     global screen
     if (screen is not None):
+        screen_width, screen_height = screen.get_size()
+        face_image_width, face_image_height = face_image.get_size()
+
+        # Calculate the position to center the face image
+        x = (screen_width - face_image_width) // 2
+        y = (screen_height - face_image_height) // 2
+
         #if screen is not None:
         screen.fill((255, 255, 255))  # Clear screen with white background
-        screen.blit(face_image, (0, 0))  # Display face image at (0, 0)
+        screen.blit(face_image, (x, y))  # Display face image at (0, 0)
         
         if talking:
-            screen.blit(mouth_open_image, (0, 0))  # Display open mouth image (adjust position as needed)
+            screen.blit(mouth_open_image, (x, y))  # Display open mouth image (adjust position as needed)
         elif not startup:
-            screen.blit(mouth_closed_image, (0, 0))  # Display closed mouth image (adjust position as needed)
+            screen.blit(mouth_closed_image, (x, y))  # Display closed mouth image (adjust position as needed)
         
-        pygame.display.update()  # Update display to show changes
+        pygame.display.flip()  # Update display to show changes
 
 # Global event to control background listening thread
 #listening_event = threading.Event()
@@ -91,9 +109,9 @@ def background_listen():
             #response = "You said: " + text
             #response = text
             last_activity_time = time.time()
-            if not go_to_sleep:
-                respond_with_audio("Uno momento")
-                display_face(startup=True)
+            # if not go_to_sleep:
+            #     respond_with_audio("Uno momento")
+            #     display_face(startup=True)
             response =  ask_gpt(text)
             respond_with_audio(response)
         else:
@@ -149,7 +167,7 @@ def respond_with_audio(text, startup=False):
         audio_length_ms = int(current_sound.get_length() * 1000)
 
         # Animate the mouth while the audio is playing
-        animate_mouth(audio_length_ms)
+        #animate_mouth(audio_length_ms)
 
    
 
@@ -190,9 +208,26 @@ def animate_mouth(audio_length_ms):
 def ask_gpt(query):
     try:
         print("Calling AI...")
-
-        response = assistant.handle_prompt(query)
         
+        # conversation = Conversation(query)
+        # response = nlp(conversation)
+        # response = response.generated_responses[-1]
+        #response = assistant.handle_prompt(query)
+        # Tokenize the input query
+        print("start tokenizer encoding...")
+        input_ids = tokenizer.encode(query + tokenizer.eos_token, return_tensors='pt')
+
+        attention_mask = input_ids.ne(tokenizer.pad_token_id).long()
+        
+        # Generate a response from the model
+        print("start model generate")
+        output_ids = model.generate(input_ids, attention_mask=attention_mask, max_length=1000, pad_token_id=tokenizer.eos_token_id)
+
+        # Decode the generated response into a readable string
+        print("start decoding")
+        response = tokenizer.decode(output_ids[:, input_ids.shape[-1]:][0], skip_special_tokens=True)
+        
+        print("finished")
         return response
     
     except Exception as e:
@@ -219,12 +254,12 @@ def game_loop(first_run=False):
         #respond_with_audio("Welcome to our beautiful hotel. How can I assist you today?", True)
         respond_with_audio("Hello", True)
         display_face(startup=True) 
-    else:
-        init_pygame()
-        respond_with_audio("Uno momento")
-        display_face(startup=True)
-        time.sleep(0.5)
-        #display_face(startup=True)
+    # else:
+    #     init_pygame()
+    #     respond_with_audio("Uno momento")
+    #     display_face(startup=True)
+    #     time.sleep(0.5)
+    #     #display_face(startup=True)
         
 
     while running: 
